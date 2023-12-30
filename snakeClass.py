@@ -16,6 +16,10 @@ import datetime
 import distutils.util
 DEVICE = 'cpu' # 'cuda' if torch.cuda.is_available() else 'cpu'
 
+import matplotlib.pyplot as plt
+import cv2 as cv
+import gif
+
 #################################
 #   Define parameters manually  #
 #################################
@@ -32,10 +36,14 @@ def define_parameters():
     params['batch_size'] = 1000
     # Settings
     params['weights_path'] = 'weights/weights.h5'
-    params['train'] = False
     params["test"] = True
     params['plot_score'] = True
     params['log_path'] = 'logs/scores_' + str(datetime.datetime.now().strftime("%Y%m%d%H%M%S")) +'.txt'
+    params['gif_path'] = 'logs/gifs_' + str(datetime.datetime.now().strftime("%Y%m%d%H%M%S")) + '/'
+    if not os.path.exists(params['gif_path']+'train'):
+        os.makedirs(params['gif_path']+'train')
+    if not os.path.exists(params['gif_path']+'test'):
+        os.makedirs(params['gif_path']+'test')
     return params
 
 
@@ -67,6 +75,14 @@ class Player(object):
         self.image = pygame.image.load('img/snakeBody.png')
         self.x_change = 20
         self.y_change = 0
+        
+        self.obstacle = []
+        obsIm = cv.imread("img/obs0.png", cv.IMREAD_GRAYSCALE)
+        for i in range(0, game.game_width, 20):
+            for j in range(0, game.game_height, 20):
+                if obsIm[int(j / 20), int(i / 20)] < 128:
+                    self.obstacle.append([i, j])
+        self.obsImage = pygame.image.load('img/obstacle.png')
 
     def update_position(self, x, y):
         if self.position[-1][0] != x or self.position[-1][1] != y:
@@ -100,7 +116,8 @@ class Player(object):
         if self.x < 20 or self.x > game.game_width - 40 \
                 or self.y < 20 \
                 or self.y > game.game_height - 40 \
-                or [self.x, self.y] in self.position:
+                or [self.x, self.y] in self.position \
+                or [self.x, self.y] in self.obstacle:
             game.crash = True
         eat(self, food, game)
 
@@ -114,6 +131,9 @@ class Player(object):
             for i in range(food):
                 x_temp, y_temp = self.position[len(self.position) - 1 - i]
                 game.gameDisplay.blit(self.image, (x_temp, y_temp))
+            
+            for obs in self.obstacle:
+                game.gameDisplay.blit(self.obsImage, (obs[0], obs[1]))
 
             update_screen()
         else:
@@ -131,7 +151,7 @@ class Food(object):
         self.x_food = x_rand - x_rand % 20
         y_rand = randint(20, game.game_height - 40)
         self.y_food = y_rand - y_rand % 20
-        if [self.x_food, self.y_food] not in player.position:
+        if [self.x_food, self.y_food] not in player.position and [self.x_food, self.y_food] not in player.obstacle:
             return self.x_food, self.y_food
         else:
             self.food_coord(game, player)
@@ -179,6 +199,12 @@ def display(player, food, game, record):
 def update_screen():
     pygame.display.update()
 
+@gif.frame
+def get_frame():
+    pygame.image.save(pygame.display.get_surface(), "img/temp.png")
+    frame = cv.imread("img/temp.png")
+    frame = cv.cvtColor(frame, cv.COLOR_BGR2RGB)
+    plt.imshow(frame)
 
 def initialize_game(player, game, food, agent, batch_size):
     state_init1 = agent.get_state(game, player, food)  # [0 0 0 0 0 0 0 0 0 1 0 0 0 1 0 0]
@@ -239,6 +265,7 @@ def run(params):
     record = 0
     total_score = 0
     while counter_games < params['episodes']:
+        frames = []
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
                 pygame.quit()
@@ -250,8 +277,11 @@ def run(params):
 
         # Perform first move
         initialize_game(player1, game, food1, agent, params['batch_size'])
+
         if params['display']:
             display(player1, food1, game, record)
+            frame = get_frame() #np.fromstring(pygame.display.get_surface().get_buffer().raw, dtype='b').reshape(440, 500, -1).transpose(1, 0, 2)
+            frames.append(frame)
         
         steps = 0       # steps since the last positive reward
         while (not game.crash) and (steps < 100):
@@ -294,12 +324,15 @@ def run(params):
             record = get_record(game.score, record)
             if params['display']:
                 display(player1, food1, game, record)
+                frame = get_frame()
+                frames.append(frame)
                 pygame.time.wait(params['speed'])
             steps+=1
         if params['train']:
             agent.replay_new(agent.memory, params['batch_size'])
         counter_games += 1
         total_score += game.score
+        gif.save(frames, params['gif_path'] + ("train/" if params['train'] else "test/") + f'{counter_games}.gif', duration=5)
         print(f'Game {counter_games}      Score: {game.score}')
         score_plot.append(game.score)
         counter_plot.append(counter_games)
@@ -316,11 +349,13 @@ if __name__ == '__main__':
     pygame.font.init()
     parser = argparse.ArgumentParser()
     params = define_parameters()
-    parser.add_argument("--display", nargs='?', type=distutils.util.strtobool, default=True)
+    parser.add_argument("--display", action='store_true')
     parser.add_argument("--speed", nargs='?', type=int, default=50)
     parser.add_argument("--bayesianopt", nargs='?', type=distutils.util.strtobool, default=False)
+    parser.add_argument("--train", action='store_true')
     args = parser.parse_args()
     print("Args", args)
+    params['train'] = args.train
     params['display'] = args.display
     params['speed'] = args.speed
     if args.bayesianopt:
