@@ -340,8 +340,8 @@ def run(params):
     if params['train']:
         model_weights = agent.state_dict()
         torch.save(model_weights, params["weights_path"])
-    if params['plot_score']:
-        plot_seaborn(counter_plot, score_plot, params['train'])
+    #if params['plot_score']:
+        #plot_seaborn(counter_plot, score_plot, params['train'])
     return total_score, mean, stdev
 
 if __name__ == '__main__':

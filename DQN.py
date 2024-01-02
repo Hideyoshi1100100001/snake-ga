@@ -113,12 +113,12 @@ class DQNAgent(torch.nn.Module):
             +10 when Snake eats food
             0 otherwise
         """
-        self.reward = -1
+        self.reward = 0
         if crash:
-            self.reward = -100
+            self.reward = -10
             return self.reward
         if player.eaten:
-            self.reward = 100
+            self.reward = 10
         return self.reward
 
     def remember(self, state, action, reward, next_state, done):
