@@ -140,6 +140,22 @@ class DQNAgent(torch.nn.Module):
             self.reward = 10
         return self.reward
 
+    def set_potential_reward(self, player, dis, crash):
+        """
+        Return the potential reward.
+        The reward is:
+            -10 when Snake crashes. 
+            +10 when Snake eats food
+            potential otherwise
+        """
+        self.reward = dis / 4
+        if crash:
+            self.reward = -10
+            return self.reward
+        if player.eaten:
+            self.reward = 10
+        return self.reward
+
     def remember(self, state, action, reward, next_state, done):
         """
         Store the <state, action, reward, next_state, is_done> tuple in a 

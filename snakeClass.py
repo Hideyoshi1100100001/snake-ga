@@ -77,7 +77,7 @@ class Player(object):
         self.y_change = 0
         
         self.obstacle = []
-        obsIm = cv.imread("img/obs0.png", cv.IMREAD_GRAYSCALE)
+        obsIm = cv.imread("img/obs2.png", cv.IMREAD_GRAYSCALE)
         for i in range(0, game.game_width, 20):
             for j in range(0, game.game_height, 20):
                 if obsIm[int(j / 20), int(i / 20)] < 128:
@@ -293,6 +293,7 @@ def run(params):
 
             # get old state
             state_old = agent.get_state(game, player1, food1)
+            state_diff_old = np.array([player1.x - food1.x_food, player1.y - food1.y_food])
 
             # perform random actions based on agent.epsilon, or choose the action
             if random.uniform(0, 1) < agent.epsilon:
@@ -307,12 +308,15 @@ def run(params):
             # perform new move and get new state
             player1.do_move(final_move, player1.x, player1.y, game, food1, agent)
             state_new = agent.get_state(game, player1, food1)
+            state_diff_new = np.array([player1.x - food1.x_food, player1.y - food1.y_food])
+            potential_diff = np.sum(np.abs(state_diff_old)) - np.sum(np.abs(state_diff_new))
 
             # set reward for the new state
-            reward = agent.set_reward(player1, game.crash)
+            #reward = agent.set_reward(player1, game.crash)
+            reward = agent.set_potential_reward(player1, potential_diff, game.crash)
             
             # if food is eaten, steps is set to 0
-            if reward > 0:
+            if reward >= 10:
                 steps = 0
                 
             if params['train']:
