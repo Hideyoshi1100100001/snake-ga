@@ -150,6 +150,15 @@ class Player(object):
 
         self.update_position(self.x, self.y)
 
+    def getBodyPotential(self):
+        now = np.array([self.x, self.y])
+        pot = 0
+        for pos in self.position:
+            temp = np.array(pos)
+            pot += np.sum(np.abs(temp - now))
+        pot /= 20 * self.food
+        return pot
+
     def display_player(self, x, y, food, game):
         self.position[-1][0] = x
         self.position[-1][1] = y
@@ -322,6 +331,7 @@ def run(params):
             state_old = agent.get_state(game, player1, food1)
             state_diff_old = np.array([player1.x - food1.x_food, player1.y - food1.y_food])
             obs_pot_old = player1.obsPotential[int(player1.x // 20), int(player1.y // 20)]
+            body_pot_old = player1.getBodyPotential()
 
             # perform random actions based on agent.epsilon, or choose the action
             if random.uniform(0, 1) < agent.epsilon:
@@ -338,8 +348,10 @@ def run(params):
             state_new = agent.get_state(game, player1, food1)
             state_diff_new = np.array([player1.x - food1.x_food, player1.y - food1.y_food])
             obs_pot_new = player1.obsPotential[int(player1.x // 20), int(player1.y // 20)]
+            body_pot_new = player1.getBodyPotential()
             potential_diff = ((np.sum(np.abs(state_diff_old)) - np.sum(np.abs(state_diff_new))) / (4 * 20) + 
-                              (obs_pot_new - obs_pot_old))
+                              (obs_pot_new - obs_pot_old) / 2 + 
+                              (body_pot_old - body_pot_new) / 2)
 
             # set reward for the new state
             #reward = agent.set_reward(player1, game.crash)
