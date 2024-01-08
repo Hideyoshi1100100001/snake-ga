@@ -148,7 +148,7 @@ class DQNAgent(torch.nn.Module):
             +10 when Snake eats food
             potential otherwise
         """
-        self.reward = dis / 4
+        self.reward = dis
         if crash:
             self.reward = -10
             return self.reward

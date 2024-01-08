@@ -50,20 +50,20 @@ def define_parameters():
 class Game:
     """ Initialize PyGAME """
     
-    def __init__(self, game_width, game_height):
+    def __init__(self, game_width, game_height, params):
         pygame.display.set_caption('SnakeGen')
         self.game_width = game_width
         self.game_height = game_height
         self.gameDisplay = pygame.display.set_mode((game_width, game_height + 60))
         self.bg = pygame.image.load("img/background.png")
         self.crash = False
-        self.player = Player(self)
+        self.player = Player(self, params)
         self.food = Food()
         self.score = 0
 
 
 class Player(object):
-    def __init__(self, game):
+    def __init__(self, game, params):
         x = 0.45 * game.game_width
         y = 0.5 * game.game_height
         self.x = x - x % 20
@@ -77,11 +77,38 @@ class Player(object):
         self.y_change = 0
         
         self.obstacle = []
-        obsIm = cv.imread("img/obs2.png", cv.IMREAD_GRAYSCALE)
+        obsIm = cv.imread(f"img/obs{params['obs']}.png", cv.IMREAD_GRAYSCALE)
         for i in range(0, game.game_width, 20):
             for j in range(0, game.game_height, 20):
                 if obsIm[int(j / 20), int(i / 20)] < 128:
                     self.obstacle.append([i, j])
+        
+        self.obsPotential = np.zeros((int(game.game_width // 20), int(game.game_height // 20)))
+        visited = np.zeros_like(self.obsPotential)
+        direct = [[1, 0], [0, 1], [-1, 0], [0, -1]]
+        q1, q2 = [], []
+        for pos in self.obstacle:
+            q1.append([int(pos[0] // 20), int(pos[1] // 20)])
+        potVal = 0
+        while len(q1) > 0:
+            while len(q1) > 0:
+                self.obsPotential[q1[-1][0], q1[-1][1]] = potVal
+                visited[q1[-1][0], q1[-1][1]] = 1
+                for dir in direct:
+                    tx, ty = q1[-1][0] + dir[0], q1[-1][1] + dir[1]
+                    if tx < 0 or tx >= game.game_width // 20 or ty < 0 or ty >= game.game_height // 20 or visited[tx, ty] == 1:
+                        continue
+                    q2.append([tx, ty])
+                q1.pop()
+            q1, q2 = q2, q1
+            potVal += 1
+        x = np.array(range(game.game_width // 20))
+        y = np.array(range(game.game_height // 20))
+        X, Y = np.meshgrid(x, y)
+        Z = self.obsPotential[X, Y]
+        plt.contourf(X, Y, Z)
+        plt.savefig(params['gif_path'] + "obsPotential")
+
         self.obsImage = pygame.image.load('img/obstacle.png')
 
     def update_position(self, x, y):
@@ -166,7 +193,6 @@ def eat(player, food, game):
         food.food_coord(game, player)
         player.eaten = True
         game.score = game.score + 1
-
 
 def get_record(score, record):
     if score >= record:
@@ -264,6 +290,7 @@ def run(params):
     counter_plot = []
     record = 0
     total_score = 0
+    high_score = [0, 0]
     while counter_games < params['episodes']:
         frames = []
         for event in pygame.event.get():
@@ -271,7 +298,7 @@ def run(params):
                 pygame.quit()
                 quit()
         # Initialize classes
-        game = Game(440, 440)
+        game = Game(440, 440, params)
         player1 = game.player
         food1 = game.food
 
@@ -294,6 +321,7 @@ def run(params):
             # get old state
             state_old = agent.get_state(game, player1, food1)
             state_diff_old = np.array([player1.x - food1.x_food, player1.y - food1.y_food])
+            obs_pot_old = player1.obsPotential[int(player1.x // 20), int(player1.y // 20)]
 
             # perform random actions based on agent.epsilon, or choose the action
             if random.uniform(0, 1) < agent.epsilon:
@@ -309,7 +337,9 @@ def run(params):
             player1.do_move(final_move, player1.x, player1.y, game, food1, agent)
             state_new = agent.get_state(game, player1, food1)
             state_diff_new = np.array([player1.x - food1.x_food, player1.y - food1.y_food])
-            potential_diff = np.sum(np.abs(state_diff_old)) - np.sum(np.abs(state_diff_new))
+            obs_pot_new = player1.obsPotential[int(player1.x // 20), int(player1.y // 20)]
+            potential_diff = ((np.sum(np.abs(state_diff_old)) - np.sum(np.abs(state_diff_new))) / (4 * 20) + 
+                              (obs_pot_new - obs_pot_old))
 
             # set reward for the new state
             #reward = agent.set_reward(player1, game.crash)
@@ -336,11 +366,16 @@ def run(params):
             agent.replay_new(agent.memory, params['batch_size'])
         counter_games += 1
         total_score += game.score
-        gif.save(frames, params['gif_path'] + ("train/" if params['train'] else "test/") + f'{counter_games}.gif', duration=5)
+        if params['display']:
+            gif.save(frames, params['gif_path'] + ("train/" if params['train'] else "test/") + f'{counter_games}.gif', duration=5)
         print(f'Game {counter_games}      Score: {game.score}')
+        if game.score > high_score[1]:
+            high_score = [counter_games, game.score]
         score_plot.append(game.score)
         counter_plot.append(counter_games)
     mean, stdev = get_mean_stdev(score_plot)
+    with open(params['gif_path'] + "log.txt", 'a') as f:
+        f.writelines(f"{('Train: ' if params['train'] else 'Test: ')}score {high_score[1]} in game {high_score[0]}\n")
     if params['train']:
         model_weights = agent.state_dict()
         torch.save(model_weights, params["weights_path"])
@@ -357,11 +392,15 @@ if __name__ == '__main__':
     parser.add_argument("--speed", nargs='?', type=int, default=50)
     parser.add_argument("--bayesianopt", nargs='?', type=distutils.util.strtobool, default=False)
     parser.add_argument("--train", action='store_true')
+    parser.add_argument("--obs", type=int, default=0)
+    parser.add_argument("--epochs", type=int, default=250)
     args = parser.parse_args()
-    print("Args", args)
     params['train'] = args.train
     params['display'] = args.display
     params['speed'] = args.speed
+    params['obs'] = args.obs
+    params['episodes'] = args.epochs
+    print("Args", args)
     if args.bayesianopt:
         bayesOpt = BayesianOptimizer(params)
         bayesOpt.optimize_RL()
