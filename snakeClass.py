@@ -5,6 +5,7 @@ import numpy as np
 import seaborn as sns
 import matplotlib.pyplot as plt
 from DQN import DQNAgent
+from ResNet import ResNetAgent
 from random import randint
 import random
 import statistics
@@ -58,7 +59,7 @@ class Game:
         self.bg = pygame.image.load("img/background.png")
         self.crash = False
         self.player = Player(self, params)
-        self.food = Food()
+        self.food = Food(self, self.player)
         self.score = 0
 
 
@@ -111,13 +112,24 @@ class Player(object):
 
         self.obsImage = pygame.image.load('img/obstacle.png')
 
+        self.graph = np.zeros_like(visited)
+        for pos in self.obstacle:
+            self.graph[int(pos[0] // 20), int(pos[1] // 20)] = -1
+        self.graph[int(self.x // 20), int(self.y // 20)] = -4
+
+
     def update_position(self, x, y):
         if self.position[-1][0] != x or self.position[-1][1] != y:
+            self.graph[int(self.position[0][0] // 20), int(self.position[0][1] // 20)] = 0
             if self.food > 1:
                 for i in range(0, self.food - 1):
                     self.position[i][0], self.position[i][1] = self.position[i + 1]
+                if self.food > 2:
+                    self.graph[int(self.position[-3][0] // 20), int(self.position[-3][1] // 20)] = -2
+                self.graph[int(self.position[-2][0] // 20), int(self.position[-2][1] // 20)] = -3
             self.position[-1][0] = x
             self.position[-1][1] = y
+            self.graph[int(self.position[-1][0] // 20), int(self.position[-1][1] // 20)] = -4
 
     def do_move(self, move, x, y, game, food, agent):
         move_array = [self.x_change, self.y_change]
@@ -177,9 +189,11 @@ class Player(object):
 
 
 class Food(object):
-    def __init__(self):
+    def __init__(self, game, player):
         self.x_food = 240
         self.y_food = 200
+        player.graph[12, 10] = 1
+        #self.food_coord(game, player)
         self.image = pygame.image.load('img/food2.png')
 
     def food_coord(self, game, player):
@@ -188,6 +202,7 @@ class Food(object):
         y_rand = randint(20, game.game_height - 40)
         self.y_food = y_rand - y_rand % 20
         if [self.x_food, self.y_food] not in player.position and [self.x_food, self.y_food] not in player.obstacle:
+            player.graph[int(self.x_food // 20), int(self.y_food // 20)] = 1
             return self.x_food, self.y_food
         else:
             self.food_coord(game, player)
@@ -242,7 +257,7 @@ def get_frame():
     plt.imshow(frame)
 
 def initialize_game(player, game, food, agent, batch_size):
-    state_init1 = agent.get_state(game, player, food)  # [0 0 0 0 0 0 0 0 0 1 0 0 0 1 0 0]
+    state_init1 = agent.get_state(game, player, food)
     action = [1, 0, 0]
     player.do_move(action, player.x, player.y, game, food, agent)
     state_init2 = agent.get_state(game, player, food)
@@ -291,7 +306,7 @@ def run(params):
     Run the DQN algorithm, based on the parameters previously set.   
     """
     pygame.init()
-    agent = DQNAgent(params)
+    agent = ResNetAgent(params)
     agent = agent.to(DEVICE)
     agent.optimizer = optim.Adam(agent.parameters(), weight_decay=0, lr=params['learning_rate'])
     counter_games = 0
@@ -328,7 +343,7 @@ def run(params):
                 agent.epsilon = 1 - (counter_games * params['epsilon_decay_linear'])
 
             # get old state
-            state_old = agent.get_state(game, player1, food1)
+            state_old = agent.get_state(player1)
             state_diff_old = np.array([player1.x - food1.x_food, player1.y - food1.y_food])
             obs_pot_old = player1.obsPotential[int(player1.x // 20), int(player1.y // 20)]
             body_pot_old = player1.getBodyPotential()
@@ -339,13 +354,13 @@ def run(params):
             else:
                 # predict action based on the old state
                 with torch.no_grad():
-                    state_old_tensor = torch.tensor(state_old.reshape((1, 11)), dtype=torch.float32).to(DEVICE)
+                    state_old_tensor = torch.tensor(np.expand_dims(state_old, 0), dtype=torch.float32).to(DEVICE)
                     prediction = agent(state_old_tensor)
                     final_move = np.eye(3)[np.argmax(prediction.detach().cpu().numpy()[0])]
 
             # perform new move and get new state
             player1.do_move(final_move, player1.x, player1.y, game, food1, agent)
-            state_new = agent.get_state(game, player1, food1)
+            state_new = agent.get_state(player1)
             state_diff_new = np.array([player1.x - food1.x_food, player1.y - food1.y_food])
             obs_pot_new = player1.obsPotential[int(player1.x // 20), int(player1.y // 20)]
             body_pot_new = player1.getBodyPotential()
