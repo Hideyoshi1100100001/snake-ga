@@ -257,10 +257,10 @@ def get_frame():
     plt.imshow(frame)
 
 def initialize_game(player, game, food, agent, batch_size):
-    state_init1 = agent.get_state(game, player, food)
+    state_init1 = agent.get_state(player)
     action = [1, 0, 0]
     player.do_move(action, player.x, player.y, game, food, agent)
-    state_init2 = agent.get_state(game, player, food)
+    state_init2 = agent.get_state(player)
     reward1 = agent.set_reward(player, game.crash)
     agent.remember(state_init1, action, reward1, state_init2, game.crash)
     agent.replay_new(agent.memory, batch_size)
@@ -354,7 +354,7 @@ def run(params):
             else:
                 # predict action based on the old state
                 with torch.no_grad():
-                    state_old_tensor = torch.tensor(np.expand_dims(state_old, 0), dtype=torch.float32).to(DEVICE)
+                    state_old_tensor = torch.tensor(state_old.reshape(1, 1, state_old.shape[0], state_old.shape[1]), dtype=torch.float32).to(DEVICE)
                     prediction = agent(state_old_tensor)
                     final_move = np.eye(3)[np.argmax(prediction.detach().cpu().numpy()[0])]
 

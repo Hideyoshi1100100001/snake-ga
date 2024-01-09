@@ -76,10 +76,10 @@ class ResNetAgent(nn.Module):
         self.relu = nn.ReLU(inplace=True)
         self.maxpool = nn.MaxPool2d(kernel_size=3, stride=1, padding=1)
         self.layer1 = self._make_layer(block, 64, layers[0])
-        self.layer2 = self._make_layer(block, 128, layers[1])
+        self.layer2 = self._make_layer(block, 128, layers[1], stride=2)
         self.layer3 = self._make_layer(block, 256, layers[2], stride=2)
         self.layer4 = self._make_layer(block, 512, layers[3], stride=2)
-        self.avgpool = nn.AvgPool2d(5, stride=1)
+        self.avgpool = nn.AvgPool2d(3, stride=1)
         self.fc = nn.Linear(512 * block.expansion, num_classes)
 
         for m in self.modules():
@@ -193,8 +193,8 @@ class ResNetAgent(nn.Module):
             self.train()
             torch.set_grad_enabled(True)
             target = reward
-            next_state_tensor = torch.tensor(np.expand_dims(next_state, 0), dtype=torch.float32).to(DEVICE)
-            state_tensor = torch.tensor(np.expand_dims(state, 0), dtype=torch.float32, requires_grad=True).to(DEVICE)
+            next_state_tensor = torch.tensor(next_state.reshape(1, 1, next_state.shape[0], next_state.shape[1]), dtype=torch.float32).to(DEVICE)
+            state_tensor = torch.tensor(state.reshape(1, 1, state.shape[0], state.shape[1]), dtype=torch.float32, requires_grad=True).to(DEVICE)
             if not done:
                 target = reward + self.gamma * torch.max(self.forward(next_state_tensor)[0])
             output = self.forward(state_tensor)
@@ -214,10 +214,10 @@ class ResNetAgent(nn.Module):
         self.train()
         torch.set_grad_enabled(True)
         target = reward
-        next_state_tensor = torch.tensor(np.expand_dims(next_state, 0), dtype=torch.float32).to(DEVICE)
-        state_tensor = torch.tensor(np.expand_dims(next_state, 0), dtype=torch.float32, requires_grad=True).to(DEVICE)
+        next_state_tensor = torch.tensor(next_state.reshape(1, 1, next_state.shape[0], next_state.shape[1]), dtype=torch.float32).to(DEVICE)
+        state_tensor = torch.tensor(state.reshape(1, 1, state.shape[0], state.shape[1]), dtype=torch.float32, requires_grad=True).to(DEVICE)
         if not done:
-            target = reward + self.gamma * torch.max(self.forward(next_state_tensor[0]))
+            target = reward + self.gamma * torch.max(self.forward(next_state_tensor)[0])
         output = self.forward(state_tensor)
         target_f = output.clone()
         target_f[0][np.argmax(action)] = target
