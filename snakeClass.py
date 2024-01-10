@@ -355,7 +355,7 @@ def run(params):
                 # predict action based on the old state
                 with torch.no_grad():
                     state_old_graph_tensor = torch.tensor(state_old[0].reshape(1, 1, state_old[0].shape[0], state_old[0].shape[1]), dtype=torch.float32).to(DEVICE)
-                    state_old_vector_tensor = torch.tensor(state_old[1].reshape(1, 1, state_old[0].shape[0], state_old[0].shape[1]), dtype=torch.float32).to(DEVICE)
+                    state_old_vector_tensor = torch.tensor(state_old[1].reshape(1, 11), dtype=torch.float32).to(DEVICE)
                     prediction = agent(state_old_graph_tensor, state_old_vector_tensor)
                     final_move = np.eye(3)[np.argmax(prediction.detach().cpu().numpy()[0])]
 

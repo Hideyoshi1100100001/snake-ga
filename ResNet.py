@@ -280,9 +280,9 @@ class ResNetAgent(nn.Module):
             torch.set_grad_enabled(True)
             target = reward
             next_state_graph_tensor = torch.tensor(next_state[0].reshape(1, 1, next_state[0].shape[0], next_state[0].shape[1]), dtype=torch.float32).to(DEVICE)
-            next_state_vector_tensor = torch.tensor(next_state[1].reshape(1, 1, next_state[0].shape[0], next_state[0].shape[1]), dtype=torch.float32).to(DEVICE)
+            next_state_vector_tensor = torch.tensor(next_state[1].reshape(1, 11), dtype=torch.float32).to(DEVICE)
             state_graph_tensor = torch.tensor(state[0].reshape(1, 1, state[0].shape[0], state[0].shape[1]), dtype=torch.float32, requires_grad=True).to(DEVICE)
-            state_vector_tensor = torch.tensor(state[1].reshape(1, 1, state[0].shape[0], state[0].shape[1]), dtype=torch.float32, requires_grad=True).to(DEVICE)
+            state_vector_tensor = torch.tensor(state[1].reshape(1, 11), dtype=torch.float32, requires_grad=True).to(DEVICE)
             if not done:
                 target = reward + self.gamma * torch.max(self.forward(next_state_graph_tensor, next_state_vector_tensor)[0])
             output = self.forward(state_graph_tensor, state_vector_tensor)
@@ -303,9 +303,9 @@ class ResNetAgent(nn.Module):
         torch.set_grad_enabled(True)
         target = reward
         next_state_graph_tensor = torch.tensor(next_state[0].reshape(1, 1, next_state[0].shape[0], next_state[0].shape[1]), dtype=torch.float32).to(DEVICE)
-        next_state_vector_tensor = torch.tensor(next_state[1].reshape(1, 1, next_state[0].shape[0], next_state[0].shape[1]), dtype=torch.float32).to(DEVICE)
+        next_state_vector_tensor = torch.tensor(next_state[1].reshape(1, 11), dtype=torch.float32).to(DEVICE)
         state_graph_tensor = torch.tensor(state[0].reshape(1, 1, state[0].shape[0], state[0].shape[1]), dtype=torch.float32, requires_grad=True).to(DEVICE)
-        state_vector_tensor = torch.tensor(state[1].reshape(1, 1, state[0].shape[0], state[0].shape[1]), dtype=torch.float32, requires_grad=True).to(DEVICE)
+        state_vector_tensor = torch.tensor(state[1].reshape(1, 11), dtype=torch.float32, requires_grad=True).to(DEVICE)
         if not done:
             target = reward + self.gamma * torch.max(self.forward(next_state_graph_tensor, next_state_vector_tensor)[0])
         output = self.forward(state_graph_tensor, state_vector_tensor)
