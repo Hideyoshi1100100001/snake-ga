@@ -257,10 +257,10 @@ def get_frame():
     plt.imshow(frame)
 
 def initialize_game(player, game, food, agent, batch_size):
-    state_init1 = agent.get_state(player)
+    state_init1 = agent.get_state(game, player, food)
     action = [1, 0, 0]
     player.do_move(action, player.x, player.y, game, food, agent)
-    state_init2 = agent.get_state(player)
+    state_init2 = agent.get_state(game, player, food)
     reward1 = agent.set_reward(player, game.crash)
     agent.remember(state_init1, action, reward1, state_init2, game.crash)
     agent.replay_new(agent.memory, batch_size)
@@ -343,7 +343,7 @@ def run(params):
                 agent.epsilon = 1 - (counter_games * params['epsilon_decay_linear'])
 
             # get old state
-            state_old = agent.get_state(player1)
+            state_old = agent.get_state(game, player1, food1)
             state_diff_old = np.array([player1.x - food1.x_food, player1.y - food1.y_food])
             obs_pot_old = player1.obsPotential[int(player1.x // 20), int(player1.y // 20)]
             body_pot_old = player1.getBodyPotential()
@@ -354,13 +354,14 @@ def run(params):
             else:
                 # predict action based on the old state
                 with torch.no_grad():
-                    state_old_tensor = torch.tensor(state_old.reshape(1, 1, state_old.shape[0], state_old.shape[1]), dtype=torch.float32).to(DEVICE)
-                    prediction = agent(state_old_tensor)
+                    state_old_graph_tensor = torch.tensor(state_old[0].reshape(1, 1, state_old.shape[0], state_old.shape[1]), dtype=torch.float32).to(DEVICE)
+                    state_old_vector_tensor = torch.tensor(state_old[1].reshape(1, 1, state_old.shape[0], state_old.shape[1]), dtype=torch.float32).to(DEVICE)
+                    prediction = agent(state_old_graph_tensor, state_old_vector_tensor)
                     final_move = np.eye(3)[np.argmax(prediction.detach().cpu().numpy()[0])]
 
             # perform new move and get new state
             player1.do_move(final_move, player1.x, player1.y, game, food1, agent)
-            state_new = agent.get_state(player1)
+            state_new = agent.get_state(game, player1, food1)
             state_diff_new = np.array([player1.x - food1.x_food, player1.y - food1.y_food])
             obs_pot_new = player1.obsPotential[int(player1.x // 20), int(player1.y // 20)]
             body_pot_new = player1.getBodyPotential()

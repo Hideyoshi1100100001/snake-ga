@@ -65,6 +65,9 @@ class ResNetAgent(nn.Module):
         self.learning_rate = params['learning_rate']        
         self.epsilon = 1
         self.actual = []
+        self.first_layer = params['first_layer_size']
+        self.second_layer = params['second_layer_size']
+        self.third_layer = params['third_layer_size']
         self.memory = collections.deque(maxlen=params['memory_size'])
         self.weights = params['weights_path']
         self.load_weights = params['load_weights']
@@ -80,7 +83,13 @@ class ResNetAgent(nn.Module):
         self.layer3 = self._make_layer(block, 256, layers[2], stride=2)
         self.layer4 = self._make_layer(block, 512, layers[3], stride=2)
         self.avgpool = nn.AvgPool2d(3, stride=1)
-        self.fc = nn.Linear(512 * block.expansion, num_classes)
+        self.fc = nn.Linear(512 * block.expansion, 11)
+        self.fc2 = nn.Linear(22, 11)
+
+        self.f1 = nn.Linear(11, self.first_layer)
+        self.f2 = nn.Linear(self.first_layer, self.second_layer)
+        self.f3 = nn.Linear(self.second_layer, self.third_layer)
+        self.f4 = nn.Linear(self.third_layer, num_classes)
 
         for m in self.modules():
             if isinstance(m, nn.Conv2d):
@@ -111,7 +120,7 @@ class ResNetAgent(nn.Module):
 
         return nn.Sequential(*layers)
 
-    def forward(self, x):
+    def forward(self, x, y):
         # input size: 22 * 22
         x = self.conv1(x)
         x = self.bn1(x)
@@ -125,12 +134,20 @@ class ResNetAgent(nn.Module):
 
         x = self.avgpool(x)
         x = x.view(x.size(0), -1)
-        x = F.softmax(self.fc(x), dim=-1)
+        x = F.relu(self.fc(x))
+
+        x = F.relu(self.fc2(torch.cat((x, y), 1)))
+        x = F.relu(self.f1(x))
+        x = F.relu(self.f2(x))
+        x = F.relu(self.f3(x))
+        x = F.relu(self.f4(x))
+
+        x = F.softmax(x, dim=-1)
         return x
     
-    def get_state(self, player):
+    def get_state(self, game, player, food):
         """
-        Return the state graph.
+        Return the state graph and state vector.
         The state is a graph, representing:
             0: ground
             1: food
@@ -138,9 +155,78 @@ class ResNetAgent(nn.Module):
             -2: body
             -3: the body before head
             -4: head
+        The state vector is a numpy array of 11 values, representing:
+            - Danger 1 OR 2 steps ahead
+            - Danger 1 OR 2 steps on the right
+            - Danger 1 OR 2 steps on the left
+            - Snake is moving left
+            - Snake is moving right
+            - Snake is moving up
+            - Snake is moving down
+            - The food is on the left
+            - The food is on the right
+            - The food is on the upper side
+            - The food is on the lower side  
         """
 
-        return player.graph
+        state = [
+            (player.x_change == 20 and player.y_change == 0 and ((list(map(add, player.position[-1], [20, 0])) in player.obstacle) or 
+                                                                 (list(map(add, player.position[-1], [20, 0])) in player.position) or
+                                                                 player.position[-1][0] + 20 >= (game.game_width - 20))) or
+            (player.x_change == -20 and player.y_change == 0 and ((list(map(add, player.position[-1], [-20, 0])) in player.obstacle) or
+                                                                  (list(map(add, player.position[-1], [-20, 0])) in player.position) or
+                                                                  player.position[-1][0] - 20 < 20)) or
+            (player.x_change == 0 and player.y_change == -20 and ((list(map(add, player.position[-1], [0, -20])) in player.obstacle) or
+                                                                  (list(map(add, player.position[-1], [0, -20])) in player.position) or
+                                                                  player.position[-1][-1] - 20 < 20)) or
+            (player.x_change == 0 and player.y_change == 20 and ((list(map(add, player.position[-1], [0, 20])) in player.obstacle) or
+                                                                 (list(map(add, player.position[-1], [0, 20])) in player.position) or
+                                                                 player.position[-1][-1] + 20 >= (game.game_height-20))),  # danger straight
+
+            (player.x_change == 0 and player.y_change == -20 and ((list(map(add,player.position[-1],[20, 0])) in player.obstacle) or
+                                                                  (list(map(add,player.position[-1],[20, 0])) in player.position) or
+                                                                  player.position[ -1][0] + 20 > (game.game_width-20))) or
+            (player.x_change == 0 and player.y_change == 20 and ((list(map(add,player.position[-1], [-20,0])) in player.obstacle) or
+                                                                 (list(map(add,player.position[-1], [-20,0])) in player.position) or
+                                                                 player.position[-1][0] - 20 < 20)) or
+            (player.x_change == -20 and player.y_change == 0 and ((list(map(add,player.position[-1],[0,-20])) in player.obstacle) or
+                                                                  (list(map(add,player.position[-1],[0,-20])) in player.position) or
+                                                                  player.position[-1][-1] - 20 < 20)) or
+            (player.x_change == 20 and player.y_change == 0 and ((list(map(add,player.position[-1],[0,20])) in player.obstacle) or
+                                                                 (list(map(add,player.position[-1],[0,20])) in player.position) or
+                                                                 player.position[-1][-1] + 20 >= (game.game_height-20))),  # danger right
+
+            (player.x_change == 0 and player.y_change == 20 and ((list(map(add,player.position[-1],[20,0])) in player.obstacle) or
+                                                                 (list(map(add,player.position[-1],[20,0])) in player.position) or
+                                                                  player.position[-1][0] + 20 > (game.game_width-20))) or
+            (player.x_change == 0 and player.y_change == -20 and ((list(map(add, player.position[-1],[-20,0])) in player.obstacle) or
+                                                                  (list(map(add,player.position[-1],[20,0])) in player.position) or
+                                                                  player.position[-1][0] - 20 < 20)) or
+            (player.x_change == 20 and player.y_change == 0 and ((list(map(add,player.position[-1],[0,-20])) in player.obstacle) or
+                                                                 (list(map(add,player.position[-1],[20,0])) in player.position) or
+                                                                 player.position[-1][-1] - 20 < 20)) or
+            (player.x_change == -20 and player.y_change == 0 and ((list(map(add,player.position[-1],[0,20])) in player.obstacle) or
+                                                                  (list(map(add,player.position[-1],[20,0])) in player.position) or
+                                                                  player.position[-1][-1] + 20 >= (game.game_height-20))), #danger left
+
+
+            player.x_change == -20,  # move left
+            player.x_change == 20,  # move right
+            player.y_change == -20,  # move up
+            player.y_change == 20,  # move down
+            food.x_food < player.x,  # food left
+            food.x_food > player.x,  # food right
+            food.y_food < player.y,  # food up
+            food.y_food > player.y  # food down
+        ]
+
+        for i in range(len(state)):
+            if state[i]:
+                state[i]=1
+            else:
+                state[i]=0
+
+        return [player.graph, np.asarray(state)]
 
     def set_reward(self, player, crash):
         """
@@ -193,11 +279,13 @@ class ResNetAgent(nn.Module):
             self.train()
             torch.set_grad_enabled(True)
             target = reward
-            next_state_tensor = torch.tensor(next_state.reshape(1, 1, next_state.shape[0], next_state.shape[1]), dtype=torch.float32).to(DEVICE)
-            state_tensor = torch.tensor(state.reshape(1, 1, state.shape[0], state.shape[1]), dtype=torch.float32, requires_grad=True).to(DEVICE)
+            next_state_graph_tensor = torch.tensor(next_state[0].reshape(1, 1, next_state.shape[0], next_state.shape[1]), dtype=torch.float32).to(DEVICE)
+            next_state_vector_tensor = torch.tensor(next_state[1].reshape(1, 1, next_state.shape[0], next_state.shape[1]), dtype=torch.float32).to(DEVICE)
+            state_graph_tensor = torch.tensor(state[0].reshape(1, 1, state.shape[0], state.shape[1]), dtype=torch.float32, requires_grad=True).to(DEVICE)
+            state_vector_tensor = torch.tensor(state[1].reshape(1, 1, state.shape[0], state.shape[1]), dtype=torch.float32, requires_grad=True).to(DEVICE)
             if not done:
-                target = reward + self.gamma * torch.max(self.forward(next_state_tensor)[0])
-            output = self.forward(state_tensor)
+                target = reward + self.gamma * torch.max(self.forward(next_state_graph_tensor, next_state_vector_tensor)[0])
+            output = self.forward(state_graph_tensor, state_vector_tensor)
             target_f = output.clone()
             target_f[0][np.argmax(action)] = target
             target_f.detach()
@@ -214,11 +302,13 @@ class ResNetAgent(nn.Module):
         self.train()
         torch.set_grad_enabled(True)
         target = reward
-        next_state_tensor = torch.tensor(next_state.reshape(1, 1, next_state.shape[0], next_state.shape[1]), dtype=torch.float32).to(DEVICE)
-        state_tensor = torch.tensor(state.reshape(1, 1, state.shape[0], state.shape[1]), dtype=torch.float32, requires_grad=True).to(DEVICE)
+        next_state_graph_tensor = torch.tensor(next_state[0].reshape(1, 1, next_state.shape[0], next_state.shape[1]), dtype=torch.float32).to(DEVICE)
+        next_state_vector_tensor = torch.tensor(next_state[1].reshape(1, 1, next_state.shape[0], next_state.shape[1]), dtype=torch.float32).to(DEVICE)
+        state_graph_tensor = torch.tensor(state[0].reshape(1, 1, state.shape[0], state.shape[1]), dtype=torch.float32, requires_grad=True).to(DEVICE)
+        state_vector_tensor = torch.tensor(state[1].reshape(1, 1, state.shape[0], state.shape[1]), dtype=torch.float32, requires_grad=True).to(DEVICE)
         if not done:
-            target = reward + self.gamma * torch.max(self.forward(next_state_tensor)[0])
-        output = self.forward(state_tensor)
+            target = reward + self.gamma * torch.max(self.forward(next_state_graph_tensor, next_state_vector_tensor)[0])
+        output = self.forward(state_graph_tensor, state_vector_tensor)
         target_f = output.clone()
         target_f[0][np.argmax(action)] = target
         target_f.detach()
