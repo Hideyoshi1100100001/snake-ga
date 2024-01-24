@@ -1,2 +1,0 @@
-Train: score 15 in game 109
-Test: score 11 in game 155

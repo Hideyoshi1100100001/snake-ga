@@ -208,3 +208,4 @@ class DQNAgent(torch.nn.Module):
         loss = F.mse_loss(output, target_f)
         loss.backward()
         self.optimizer.step()
+        return loss

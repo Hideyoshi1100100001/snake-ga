@@ -1,2 +1,0 @@
-Train: score 31 in game 146
-Test: score 11 in game 34

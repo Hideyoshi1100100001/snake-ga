@@ -73,20 +73,19 @@ class ResNetAgent(nn.Module):
         self.load_weights = params['load_weights']
         self.optimizer = None
 
-        self.inplanes = 64
-        self.conv1 = nn.Conv2d(1, 64, kernel_size=3, stride=1, padding=1, bias=False)
-        self.bn1 = nn.BatchNorm2d(64)
+        self.inplanes = 16
+        self.conv1 = nn.Conv2d(1, 16, kernel_size=3, stride=1, padding=1, bias=False)
+        self.bn1 = nn.BatchNorm2d(16)
         self.relu = nn.ReLU(inplace=True)
         self.maxpool = nn.MaxPool2d(kernel_size=3, stride=1, padding=1)
-        self.layer1 = self._make_layer(block, 64, layers[0])
-        self.layer2 = self._make_layer(block, 128, layers[1], stride=2)
-        self.layer3 = self._make_layer(block, 256, layers[2], stride=2)
-        self.layer4 = self._make_layer(block, 512, layers[3], stride=2)
+        self.layer1 = self._make_layer(block, 16, layers[0])
+        self.layer2 = self._make_layer(block, 32, layers[1], stride=2)
+        self.layer3 = self._make_layer(block, 64, layers[2], stride=2)
+        self.layer4 = self._make_layer(block, 128, layers[3], stride=2)
         self.avgpool = nn.AvgPool2d(3, stride=1)
-        self.fc = nn.Linear(512 * block.expansion, 11)
-        self.fc2 = nn.Linear(22, 11)
+        self.fc = nn.Linear(128 * block.expansion, 64)
 
-        self.f1 = nn.Linear(11, self.first_layer)
+        self.f1 = nn.Linear(75, self.first_layer)
         self.f2 = nn.Linear(self.first_layer, self.second_layer)
         self.f3 = nn.Linear(self.second_layer, self.third_layer)
         self.f4 = nn.Linear(self.third_layer, num_classes)
@@ -136,8 +135,7 @@ class ResNetAgent(nn.Module):
         x = x.view(x.size(0), -1)
         x = F.relu(self.fc(x))
 
-        x = F.relu(self.fc2(torch.cat((x, y), 1)))
-        x = F.relu(self.f1(x))
+        x = F.relu(self.f1(torch.cat((x, y), 1)))
         x = F.relu(self.f2(x))
         x = F.relu(self.f3(x))
         x = F.relu(self.f4(x))
@@ -185,7 +183,7 @@ class ResNetAgent(nn.Module):
 
             (player.x_change == 0 and player.y_change == -20 and ((list(map(add,player.position[-1],[20, 0])) in player.obstacle) or
                                                                   (list(map(add,player.position[-1],[20, 0])) in player.position) or
-                                                                  player.position[ -1][0] + 20 > (game.game_width-20))) or
+                                                                  player.position[-1][0] + 20 > (game.game_width-20))) or
             (player.x_change == 0 and player.y_change == 20 and ((list(map(add,player.position[-1], [-20,0])) in player.obstacle) or
                                                                  (list(map(add,player.position[-1], [-20,0])) in player.position) or
                                                                  player.position[-1][0] - 20 < 20)) or
@@ -200,13 +198,13 @@ class ResNetAgent(nn.Module):
                                                                  (list(map(add,player.position[-1],[20,0])) in player.position) or
                                                                   player.position[-1][0] + 20 > (game.game_width-20))) or
             (player.x_change == 0 and player.y_change == -20 and ((list(map(add, player.position[-1],[-20,0])) in player.obstacle) or
-                                                                  (list(map(add,player.position[-1],[20,0])) in player.position) or
+                                                                  (list(map(add,player.position[-1],[-20,0])) in player.position) or
                                                                   player.position[-1][0] - 20 < 20)) or
             (player.x_change == 20 and player.y_change == 0 and ((list(map(add,player.position[-1],[0,-20])) in player.obstacle) or
-                                                                 (list(map(add,player.position[-1],[20,0])) in player.position) or
+                                                                 (list(map(add,player.position[-1],[0,-20])) in player.position) or
                                                                  player.position[-1][-1] - 20 < 20)) or
             (player.x_change == -20 and player.y_change == 0 and ((list(map(add,player.position[-1],[0,20])) in player.obstacle) or
-                                                                  (list(map(add,player.position[-1],[20,0])) in player.position) or
+                                                                  (list(map(add,player.position[-1],[0,20])) in player.position) or
                                                                   player.position[-1][-1] + 20 >= (game.game_height-20))), #danger left
 
 
@@ -312,7 +310,10 @@ class ResNetAgent(nn.Module):
         target_f = output.clone()
         target_f[0][np.argmax(action)] = target
         target_f.detach()
+        #target_f = F.softmax(target_f, dim=1)
         self.optimizer.zero_grad()
         loss = F.mse_loss(output, target_f)
+        #loss = F.cross_entropy(output, target_f)
         loss.backward()
         self.optimizer.step()
+        return loss

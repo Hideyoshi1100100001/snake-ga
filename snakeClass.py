@@ -8,6 +8,7 @@ from DQN import DQNAgent
 from ResNet import ResNetAgent
 from random import randint
 import random
+import time
 import statistics
 import torch.optim as optim
 import torch 
@@ -27,11 +28,11 @@ import gif
 def define_parameters():
     params = dict()
     # Neural Network
-    params['epsilon_decay_linear'] = 1/100
-    params['learning_rate'] = 0.00013629
-    params['first_layer_size'] = 200    # neurons in the first layer
-    params['second_layer_size'] = 20   # neurons in the second layer
-    params['third_layer_size'] = 50    # neurons in the third layer
+    params['epsilon_decay_linear'] = 1/50
+    params['learning_rate'] = 0.00013629    #/1
+    params['first_layer_size'] = 128    # neurons in the first layer
+    params['second_layer_size'] = 256   # neurons in the second layer
+    params['third_layer_size'] = 64    # neurons in the third layer
     params['episodes'] = 250          
     params['memory_size'] = 2500
     params['batch_size'] = 1000
@@ -307,6 +308,7 @@ def run(params):
     """
     pygame.init()
     agent = ResNetAgent(params)
+    #light medium heavy agent
     agent = agent.to(DEVICE)
     agent.optimizer = optim.Adam(agent.parameters(), weight_decay=0, lr=params['learning_rate'])
     counter_games = 0
@@ -316,6 +318,7 @@ def run(params):
     total_score = 0
     high_score = [0, 0]
     while counter_games < params['episodes']:
+        start = time.time()
         frames = []
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
@@ -329,7 +332,7 @@ def run(params):
         # Perform first move
         initialize_game(player1, game, food1, agent, params['batch_size'])
 
-        if params['display']:
+        if params['display'] and (not params['train'] or ((counter_games + 1) % 10 == 0)):
             display(player1, food1, game, record)
             frame = get_frame() #np.fromstring(pygame.display.get_surface().get_buffer().raw, dtype='b').reshape(440, 500, -1).transpose(1, 0, 2)
             frames.append(frame)
@@ -337,7 +340,7 @@ def run(params):
         steps = 0       # steps since the last positive reward
         while (not game.crash) and (steps < 100):
             if not params['train']:
-                agent.epsilon = 0.01
+                agent.epsilon = 0
             else:
                 # agent.epsilon is set to give randomness to actions
                 agent.epsilon = 1 - (counter_games * params['epsilon_decay_linear'])
@@ -357,6 +360,14 @@ def run(params):
                     state_old_graph_tensor = torch.tensor(state_old[0].reshape(1, 1, state_old[0].shape[0], state_old[0].shape[1]), dtype=torch.float32).to(DEVICE)
                     state_old_vector_tensor = torch.tensor(state_old[1].reshape(1, 11), dtype=torch.float32).to(DEVICE)
                     prediction = agent(state_old_graph_tensor, state_old_vector_tensor)
+                    #mask
+                    if not (state_old[1][0] and state_old[1][1] and state_old[1][2]):
+                        if state_old[1][0]:
+                            prediction[0, 0] = 0
+                        if state_old[1][1]:
+                            prediction[0, 1] = 0
+                        if state_old[1][2]:
+                            prediction[0, 2] = 0
                     final_move = np.eye(3)[np.argmax(prediction.detach().cpu().numpy()[0])]
 
             # perform new move and get new state
@@ -365,9 +376,9 @@ def run(params):
             state_diff_new = np.array([player1.x - food1.x_food, player1.y - food1.y_food])
             obs_pot_new = player1.obsPotential[int(player1.x // 20), int(player1.y // 20)]
             body_pot_new = player1.getBodyPotential()
-            potential_diff = ((np.sum(np.abs(state_diff_old)) - np.sum(np.abs(state_diff_new))) / (4 * 20) + 
-                              (obs_pot_new - obs_pot_old) / 2 + 
-                              (body_pot_old - body_pot_new) / 2)
+            potential_diff = ((np.sum(np.abs(state_diff_old)) - np.sum(np.abs(state_diff_new))) / (4 * 20) / 2 + 
+                              (obs_pot_new - obs_pot_old) / 1 + 
+                              (body_pot_old - body_pot_new) / 2) * 5
 
             # set reward for the new state
             #reward = agent.set_reward(player1, game.crash)
@@ -379,12 +390,15 @@ def run(params):
                 
             if params['train']:
                 # train short memory base on the new action and state
-                agent.train_short_memory(state_old, final_move, reward, state_new, game.crash)
+                loss = agent.train_short_memory(state_old, final_move, reward, state_new, game.crash)
+                #if (steps + 1) % 10 == 0:
+                    #print("loss:", loss)
+                #train short memory, interval
                 # store the new data into a long term memory
                 agent.remember(state_old, final_move, reward, state_new, game.crash)
 
             record = get_record(game.score, record)
-            if params['display']:
+            if params['display'] and (not params['train'] or ((counter_games + 1) % 10 == 0)):
                 display(player1, food1, game, record)
                 frame = get_frame()
                 frames.append(frame)
@@ -394,9 +408,12 @@ def run(params):
             agent.replay_new(agent.memory, params['batch_size'])
         counter_games += 1
         total_score += game.score
-        if params['display']:
+        if params['display'] and (not params['train'] or ((counter_games) % 10 == 0)):
             gif.save(frames, params['gif_path'] + ("train/" if params['train'] else "test/") + f'{counter_games}.gif', duration=5)
-        print(f'Game {counter_games}      Score: {game.score}')
+        line = f'Game {counter_games}      Score: {game.score}      Time: {time.time() - start}s'
+        print(line)
+        with open(params['gif_path'] + "log.txt", 'a') as f:
+            f.writelines(line + '\n')
         if game.score > high_score[1]:
             high_score = [counter_games, game.score]
         score_plot.append(game.score)
@@ -439,5 +456,6 @@ if __name__ == '__main__':
     if params['test']:
         print("Testing...")
         params['train'] = False
+        params['episodes'] = 100
         params['load_weights'] = True
         run(params)
