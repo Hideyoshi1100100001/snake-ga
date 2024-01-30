@@ -28,7 +28,7 @@ import gif
 def define_parameters():
     params = dict()
     # Neural Network
-    params['epsilon_decay_linear'] = 1/50
+    params['epsilon_decay_linear'] = 1/100
     params['learning_rate'] = 0.00013629    #/1
     params['first_layer_size'] = 128    # neurons in the first layer
     params['second_layer_size'] = 256   # neurons in the second layer
@@ -71,7 +71,8 @@ class Player(object):
         self.x = x - x % 20
         self.y = y - y % 20
         self.position = []
-        self.position.append([self.x, self.y])
+        self.advisedPosition = []
+        self.position.append((self.x, self.y))
         self.food = 1
         self.eaten = False
         self.image = pygame.image.load('img/snakeBody.png')
@@ -83,7 +84,7 @@ class Player(object):
         for i in range(0, game.game_width, 20):
             for j in range(0, game.game_height, 20):
                 if obsIm[int(j / 20), int(i / 20)] < 128:
-                    self.obstacle.append([i, j])
+                    self.obstacle.append((i, j))
         
         self.obsPotential = np.zeros((int(game.game_width // 20), int(game.game_height // 20)))
         visited = np.zeros_like(self.obsPotential)
@@ -112,31 +113,31 @@ class Player(object):
         plt.savefig(params['gif_path'] + "obsPotential")
 
         self.obsImage = pygame.image.load('img/obstacle.png')
+        self.adviseImage = pygame.image.load('img/advise.png')
 
-        self.graph = np.zeros_like(visited)
+        self.graph = np.zeros((6, int(game.game_width // 20), int(game.game_height // 20)))
         for pos in self.obstacle:
-            self.graph[int(pos[0] // 20), int(pos[1] // 20)] = -1
-        self.graph[int(self.x // 20), int(self.y // 20)] = -4
+            self.graph[3][int(pos[0] // 20), int(pos[1] // 20)] = 1
+        self.graph[0][int(self.x // 20), int(self.y // 20)] = 1
 
 
     def update_position(self, x, y):
         if self.position[-1][0] != x or self.position[-1][1] != y:
-            self.graph[int(self.position[0][0] // 20), int(self.position[0][1] // 20)] = 0
+            self.graph[4][int(self.position[0][0] // 20), int(self.position[0][1] // 20)] = 1
             if self.food > 1:
                 for i in range(0, self.food - 1):
-                    self.position[i][0], self.position[i][1] = self.position[i + 1]
+                    self.position[i] = (self.position[i + 1][0], self.position[i + 1][1])
                 if self.food > 2:
-                    self.graph[int(self.position[-3][0] // 20), int(self.position[-3][1] // 20)] = -2
-                self.graph[int(self.position[-2][0] // 20), int(self.position[-2][1] // 20)] = -3
-            self.position[-1][0] = x
-            self.position[-1][1] = y
-            self.graph[int(self.position[-1][0] // 20), int(self.position[-1][1] // 20)] = -4
+                    self.graph[2][int(self.position[-3][0] // 20), int(self.position[-3][1] // 20)] = 1
+                self.graph[1][int(self.position[-2][0] // 20), int(self.position[-2][1] // 20)] = 1
+            self.position[-1] = (x, y)
+            self.graph[0][int(self.position[-1][0] // 20), int(self.position[-1][1] // 20)] = 1
 
     def do_move(self, move, x, y, game, food, agent):
         move_array = [self.x_change, self.y_change]
 
         if self.eaten:
-            self.position.append([self.x, self.y])
+            self.position.append((self.x, self.y))
             self.eaten = False
             self.food = self.food + 1
         if np.array_equal(move, [1, 0, 0]):
@@ -156,12 +157,65 @@ class Player(object):
         if self.x < 20 or self.x > game.game_width - 40 \
                 or self.y < 20 \
                 or self.y > game.game_height - 40 \
-                or [self.x, self.y] in self.position \
-                or [self.x, self.y] in self.obstacle:
+                or (self.x, self.y) in self.position \
+                or (self.x, self.y) in self.obstacle:
             game.crash = True
         eat(self, food, game)
 
         self.update_position(self.x, self.y)
+
+    def advisePosition(self, game_width, game_height, x_food, y_food):
+        done = False
+        directions = [[0, 20], [0, -20], [20, 0], [-20, 0]]
+        while not done:
+            self.advisedPosition = []
+            pos = (x_food, y_food)
+            r = randint(0,3)
+            for index in range(self.food + 1):
+                if pos in self.advisedPosition or pos in self.obstacle:
+                    if fail == 2:
+                        break
+                    pos = (pos[0] - directions[r][0], pos[1] - directions[r][1])
+                    
+                    if fail == 0:
+                        if r < 2:
+                            r = 2 + randint(0,1)
+                        else:
+                            r = randint(0,1)
+                    elif fail == 1:
+                        if r % 2 == 0:
+                            r += 1
+                        else:
+                            r -= 1
+                            
+                    pos = (pos[0] + directions[r][0], pos[1] + directions[r][1])
+                    fail += 1
+                    index -= 1
+                    continue
+                self.advisedPosition.append(pos)
+                pos = (pos[0] + directions[r][0], pos[1] + directions[r][1])
+                fail = 0
+
+            if self.headTailWay(game_width, game_height, self.advisedPosition):
+                done = True
+
+    def headTailWay(self, game_width, game_height, target):
+        visited = np.zeros_like(self.obsPotential)
+        direct = [[1, 0], [0, 1], [-1, 0], [0, -1]]
+        q1, q2 = [[int(target[0][0] // 20), int(target[0][1] // 20)]], []
+        while len(q1) > 0:
+            while len(q1) > 0:
+                visited[q1[-1][0], q1[-1][1]] = 1
+                for dir in direct:
+                    tx, ty = q1[-1][0] + dir[0], q1[-1][1] + dir[1]
+                    if tx * 20 == target[-1][0] and ty * 20 == target[-1][1]:
+                        return True
+                    if tx < 0 or tx >= game_width // 20 or ty < 0 or ty >= game_height // 20 or visited[tx, ty] == 1 or (tx * 20, ty * 20) in target or (tx * 20, ty * 20) in self.obstacle:
+                        continue
+                    q2.append([tx, ty])
+                q1.pop()
+            q1, q2 = q2, q1
+        return False
 
     def getBodyPotential(self):
         now = np.array([self.x, self.y])
@@ -173,10 +227,12 @@ class Player(object):
         return pot
 
     def display_player(self, x, y, food, game):
-        self.position[-1][0] = x
-        self.position[-1][1] = y
+        self.position[-1] = (x, y)
 
         if game.crash == False:
+            for i in range(1, len(self.advisedPosition)):
+                game.gameDisplay.blit(self.adviseImage, (self.advisedPosition[i][0], self.advisedPosition[i][1]))
+                
             for i in range(food):
                 x_temp, y_temp = self.position[len(self.position) - 1 - i]
                 game.gameDisplay.blit(self.image, (x_temp, y_temp))
@@ -193,7 +249,7 @@ class Food(object):
     def __init__(self, game, player):
         self.x_food = 240
         self.y_food = 200
-        player.graph[12, 10] = 1
+        player.graph[5][12, 10] = 1
         #self.food_coord(game, player)
         self.image = pygame.image.load('img/food2.png')
 
@@ -202,8 +258,9 @@ class Food(object):
         self.x_food = x_rand - x_rand % 20
         y_rand = randint(20, game.game_height - 40)
         self.y_food = y_rand - y_rand % 20
-        if [self.x_food, self.y_food] not in player.position and [self.x_food, self.y_food] not in player.obstacle:
-            player.graph[int(self.x_food // 20), int(self.y_food // 20)] = 1
+        if (self.x_food, self.y_food) not in player.position and (self.x_food, self.y_food) not in player.obstacle:
+            player.graph[5][int(self.x_food // 20), int(self.y_food // 20)] = 1
+            player.advisePosition(game.game_width, game.game_height, self.x_food, self.y_food)
             return self.x_food, self.y_food
         else:
             self.food_coord(game, player)
@@ -347,9 +404,13 @@ def run(params):
 
             # get old state
             state_old = agent.get_state(game, player1, food1)
-            state_diff_old = np.array([player1.x - food1.x_food, player1.y - food1.y_food])
-            obs_pot_old = player1.obsPotential[int(player1.x // 20), int(player1.y // 20)]
-            body_pot_old = player1.getBodyPotential()
+            if params['reward'] == 1:
+                adv_old = len(set(player1.position).intersection(set(player1.advisedPosition)))
+            if params['reward'] == 2:
+                adv_old = len(set(player1.position).intersection(set(player1.advisedPosition)))
+                state_diff_old = np.array([player1.x - food1.x_food, player1.y - food1.y_food])
+                #obs_pot_old = player1.obsPotential[int(player1.x // 20), int(player1.y // 20)]
+                #body_pot_old = player1.getBodyPotential()
 
             # perform random actions based on agent.epsilon, or choose the action
             if random.uniform(0, 1) < agent.epsilon:
@@ -357,7 +418,7 @@ def run(params):
             else:
                 # predict action based on the old state
                 with torch.no_grad():
-                    state_old_graph_tensor = torch.tensor(state_old[0].reshape(1, 1, state_old[0].shape[0], state_old[0].shape[1]), dtype=torch.float32).to(DEVICE)
+                    state_old_graph_tensor = torch.tensor(state_old[0].reshape(1, state_old[0].shape[0], state_old[0].shape[1], state_old[0].shape[2]), dtype=torch.float32).to(DEVICE)
                     state_old_vector_tensor = torch.tensor(state_old[1].reshape(1, 11), dtype=torch.float32).to(DEVICE)
                     prediction = agent(state_old_graph_tensor, state_old_vector_tensor)
                     #mask
@@ -373,16 +434,28 @@ def run(params):
             # perform new move and get new state
             player1.do_move(final_move, player1.x, player1.y, game, food1, agent)
             state_new = agent.get_state(game, player1, food1)
-            state_diff_new = np.array([player1.x - food1.x_food, player1.y - food1.y_food])
-            obs_pot_new = player1.obsPotential[int(player1.x // 20), int(player1.y // 20)]
-            body_pot_new = player1.getBodyPotential()
-            potential_diff = ((np.sum(np.abs(state_diff_old)) - np.sum(np.abs(state_diff_new))) / (4 * 20) / 2 + 
-                              (obs_pot_new - obs_pot_old) / 1 + 
-                              (body_pot_old - body_pot_new) / 2) * 5
+            if params['reward'] == 1:
+                adv_new = len(set(player1.position).intersection(set(player1.advisedPosition)))
+                adv_diff = (adv_new - adv_old)
+            if params['reward'] == 2:
+                state_diff_new = np.array([player1.x - food1.x_food, player1.y - food1.y_food])
+                #obs_pot_new = player1.obsPotential[int(player1.x // 20), int(player1.y // 20)]
+                #body_pot_new = player1.getBodyPotential()
+                adv_new = len(set(player1.position).intersection(set(player1.advisedPosition)))
+                potential_diff = ((np.sum(np.abs(state_diff_old)) - np.sum(np.abs(state_diff_new))) / (4 * 20) / 2 + 
+                              #(obs_pot_new - obs_pot_old) / 1 + 
+                              #(body_pot_old - body_pot_new) / 2 + 
+                              (1 if adv_new > adv_old else 0) / 2
+                              ) * 5
+                              
 
             # set reward for the new state
-            #reward = agent.set_reward(player1, game.crash)
-            reward = agent.set_potential_reward(player1, potential_diff, game.crash)
+            if params['reward'] == 0:
+                reward = agent.set_reward(player1, game.crash)
+            elif params['reward'] == 1:
+                reward = agent.set_advise_reward(player1, adv_diff, game.crash)
+            elif params['reward'] == 2:
+                reward = agent.set_potential_reward(player1, potential_diff, game.crash)
             
             # if food is eaten, steps is set to 0
             if reward >= 10:
@@ -439,12 +512,14 @@ if __name__ == '__main__':
     parser.add_argument("--train", action='store_true')
     parser.add_argument("--obs", type=int, default=0)
     parser.add_argument("--epochs", type=int, default=250)
+    parser.add_argument("--reward", type=int, default=0)
     args = parser.parse_args()
     params['train'] = args.train
     params['display'] = args.display
     params['speed'] = args.speed
     params['obs'] = args.obs
     params['episodes'] = args.epochs
+    params['reward'] = args.reward
     print("Args", args)
     if args.bayesianopt:
         bayesOpt = BayesianOptimizer(params)

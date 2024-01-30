@@ -74,7 +74,7 @@ class ResNetAgent(nn.Module):
         self.optimizer = None
 
         self.inplanes = 16
-        self.conv1 = nn.Conv2d(1, 16, kernel_size=3, stride=1, padding=1, bias=False)
+        self.conv1 = nn.Conv2d(6, 16, kernel_size=3, stride=1, padding=1, bias=False)
         self.bn1 = nn.BatchNorm2d(16)
         self.relu = nn.ReLU(inplace=True)
         self.maxpool = nn.MaxPool2d(kernel_size=3, stride=1, padding=1)
@@ -120,7 +120,7 @@ class ResNetAgent(nn.Module):
         return nn.Sequential(*layers)
 
     def forward(self, x, y):
-        # input size: 22 * 22
+        # input size: 6 * 22 * 22
         x = self.conv1(x)
         x = self.bn1(x)
         x = self.relu(x)
@@ -242,6 +242,23 @@ class ResNetAgent(nn.Module):
             self.reward = 10
         return self.reward
 
+    def set_advise_reward(self, player, adv_diff, crash):
+        """
+        Return the reward.
+        The reward is:
+            -10 when Snake crashes. 
+            +10 when Snake eats food
+            0 otherwise
+        """
+        self.reward = adv_diff
+        if crash:
+            self.reward = -10
+            return self.reward
+        if player.eaten:
+            self.reward = 10
+        return self.reward
+
+
     def set_potential_reward(self, player, dis, crash):
         """
         Return the potential reward.
@@ -277,9 +294,9 @@ class ResNetAgent(nn.Module):
             self.train()
             torch.set_grad_enabled(True)
             target = reward
-            next_state_graph_tensor = torch.tensor(next_state[0].reshape(1, 1, next_state[0].shape[0], next_state[0].shape[1]), dtype=torch.float32).to(DEVICE)
+            next_state_graph_tensor = torch.tensor(next_state[0].reshape(1, next_state[0].shape[0], next_state[0].shape[1], next_state[0].shape[2]), dtype=torch.float32).to(DEVICE)
             next_state_vector_tensor = torch.tensor(next_state[1].reshape(1, 11), dtype=torch.float32).to(DEVICE)
-            state_graph_tensor = torch.tensor(state[0].reshape(1, 1, state[0].shape[0], state[0].shape[1]), dtype=torch.float32, requires_grad=True).to(DEVICE)
+            state_graph_tensor = torch.tensor(state[0].reshape(1, state[0].shape[0], state[0].shape[1], state[0].shape[2]), dtype=torch.float32, requires_grad=True).to(DEVICE)
             state_vector_tensor = torch.tensor(state[1].reshape(1, 11), dtype=torch.float32, requires_grad=True).to(DEVICE)
             if not done:
                 target = reward + self.gamma * torch.max(self.forward(next_state_graph_tensor, next_state_vector_tensor)[0])
@@ -300,9 +317,9 @@ class ResNetAgent(nn.Module):
         self.train()
         torch.set_grad_enabled(True)
         target = reward
-        next_state_graph_tensor = torch.tensor(next_state[0].reshape(1, 1, next_state[0].shape[0], next_state[0].shape[1]), dtype=torch.float32).to(DEVICE)
+        next_state_graph_tensor = torch.tensor(next_state[0].reshape(1, next_state[0].shape[0], next_state[0].shape[1], next_state[0].shape[2]), dtype=torch.float32).to(DEVICE)
         next_state_vector_tensor = torch.tensor(next_state[1].reshape(1, 11), dtype=torch.float32).to(DEVICE)
-        state_graph_tensor = torch.tensor(state[0].reshape(1, 1, state[0].shape[0], state[0].shape[1]), dtype=torch.float32, requires_grad=True).to(DEVICE)
+        state_graph_tensor = torch.tensor(state[0].reshape(1, state[0].shape[0], state[0].shape[1], state[0].shape[2]), dtype=torch.float32, requires_grad=True).to(DEVICE)
         state_vector_tensor = torch.tensor(state[1].reshape(1, 11), dtype=torch.float32, requires_grad=True).to(DEVICE)
         if not done:
             target = reward + self.gamma * torch.max(self.forward(next_state_graph_tensor, next_state_vector_tensor)[0])
