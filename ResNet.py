@@ -74,7 +74,7 @@ class ResNetAgent(nn.Module):
         self.optimizer = None
 
         self.inplanes = 16
-        self.conv1 = nn.Conv2d(6, 16, kernel_size=3, stride=1, padding=1, bias=False)
+        self.conv1 = nn.Conv2d(7, 16, kernel_size=3, stride=1, padding=1, bias=False)
         self.bn1 = nn.BatchNorm2d(16)
         self.relu = nn.ReLU(inplace=True)
         self.maxpool = nn.MaxPool2d(kernel_size=3, stride=1, padding=1)
@@ -120,7 +120,7 @@ class ResNetAgent(nn.Module):
         return nn.Sequential(*layers)
 
     def forward(self, x, y):
-        # input size: 6 * 22 * 22
+        # input size: 7 * 22 * 22
         x = self.conv1(x)
         x = self.bn1(x)
         x = self.relu(x)
@@ -282,32 +282,46 @@ class ResNetAgent(nn.Module):
         """
         self.memory.append((state, action, reward, next_state, done))
 
-    def replay_new(self, memory, batch_size):
+    def replay_new(self, memory, batch_size, short_batch):
         """
         Replay memory.
         """
+        batch_size = min(len(memory), batch_size)
+        state_old_cont = [torch.zeros((batch_size, 7, 22, 22), dtype=torch.float32).to(DEVICE), 
+                          torch.zeros((batch_size, 11), dtype=torch.float32).to(DEVICE)]
+        state_new_cont = [torch.zeros((batch_size, 7, 22, 22), dtype=torch.float32).to(DEVICE), 
+                          torch.zeros((batch_size, 11), dtype=torch.float32).to(DEVICE)]
+        action_cont = torch.zeros((batch_size, 3), dtype=torch.float32).to(DEVICE)
+        reward_cont = torch.zeros(batch_size, dtype=torch.float32).to(DEVICE)
+        done_cont = torch.zeros(batch_size, dtype=torch.float32).to(DEVICE)
         if len(memory) > batch_size:
             minibatch = random.sample(memory, batch_size)
         else:
             minibatch = memory
+            
+        slot = 0
         for state, action, reward, next_state, done in minibatch:
-            self.train()
-            torch.set_grad_enabled(True)
-            target = reward
-            next_state_graph_tensor = torch.tensor(next_state[0].reshape(1, next_state[0].shape[0], next_state[0].shape[1], next_state[0].shape[2]), dtype=torch.float32).to(DEVICE)
-            next_state_vector_tensor = torch.tensor(next_state[1].reshape(1, 11), dtype=torch.float32).to(DEVICE)
-            state_graph_tensor = torch.tensor(state[0].reshape(1, state[0].shape[0], state[0].shape[1], state[0].shape[2]), dtype=torch.float32, requires_grad=True).to(DEVICE)
-            state_vector_tensor = torch.tensor(state[1].reshape(1, 11), dtype=torch.float32, requires_grad=True).to(DEVICE)
-            if not done:
-                target = reward + self.gamma * torch.max(self.forward(next_state_graph_tensor, next_state_vector_tensor)[0])
-            output = self.forward(state_graph_tensor, state_vector_tensor)
-            target_f = output.clone()
-            target_f[0][np.argmax(action)] = target
-            target_f.detach()
-            self.optimizer.zero_grad()
-            loss = F.mse_loss(output, target_f)
-            loss.backward()
-            self.optimizer.step()            
+            state_old_cont[0][slot] = torch.tensor(state[0], dtype=torch.float32).to(DEVICE)
+            state_old_cont[1][slot] = torch.tensor(state[1], dtype=torch.float32).to(DEVICE)
+            action_cont[slot] = torch.tensor(action, dtype=torch.float32).to(DEVICE)
+            state_new_cont[0][slot] = torch.tensor(next_state[0], dtype=torch.float32).to(DEVICE)
+            state_new_cont[1][slot] = torch.tensor(next_state[1], dtype=torch.float32).to(DEVICE)
+            reward_cont[slot] = reward
+            done_cont[slot] = 0 if done else 1
+            slot += 1
+            if slot == short_batch:
+                self.train()
+                torch.set_grad_enabled(True)
+                target = reward_cont + self.gamma * torch.max(self.forward(state_new_cont[0], state_new_cont[1]), 1)[0] * done
+                output = self.forward(state_old_cont[0], state_old_cont[1])
+                target_f = output.clone()
+                target_f[:, np.argmax(action_cont, 1)] = target
+                target_f.detach()
+                self.optimizer.zero_grad()
+                loss = F.mse_loss(output, target_f)
+                loss.backward()
+                self.optimizer.step()
+                slot = 0
 
     def train_short_memory(self, state, action, reward, next_state, done):
         """
@@ -316,16 +330,10 @@ class ResNetAgent(nn.Module):
         """
         self.train()
         torch.set_grad_enabled(True)
-        target = reward
-        next_state_graph_tensor = torch.tensor(next_state[0].reshape(1, next_state[0].shape[0], next_state[0].shape[1], next_state[0].shape[2]), dtype=torch.float32).to(DEVICE)
-        next_state_vector_tensor = torch.tensor(next_state[1].reshape(1, 11), dtype=torch.float32).to(DEVICE)
-        state_graph_tensor = torch.tensor(state[0].reshape(1, state[0].shape[0], state[0].shape[1], state[0].shape[2]), dtype=torch.float32, requires_grad=True).to(DEVICE)
-        state_vector_tensor = torch.tensor(state[1].reshape(1, 11), dtype=torch.float32, requires_grad=True).to(DEVICE)
-        if not done:
-            target = reward + self.gamma * torch.max(self.forward(next_state_graph_tensor, next_state_vector_tensor)[0])
-        output = self.forward(state_graph_tensor, state_vector_tensor)
+        target = reward + self.gamma * torch.max(self.forward(next_state[0], next_state[1]), 1)[0] * done
+        output = self.forward(state[0], state[1])
         target_f = output.clone()
-        target_f[0][np.argmax(action)] = target
+        target_f[[range(action.shape[0]), np.argmax(action, 1)]] = target
         target_f.detach()
         #target_f = F.softmax(target_f, dim=1)
         self.optimizer.zero_grad()

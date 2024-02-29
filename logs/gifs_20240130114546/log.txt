@@ -1,0 +1,11 @@
+Game 1      Score: 0      Time: 57.99258327484131s
+Game 2      Score: 0      Time: 8.13063669204712s
+Game 3      Score: 0      Time: 8.947300672531128s
+Game 4      Score: 0      Time: 24.279874324798584s
+Game 5      Score: 0      Time: 79.7705762386322s
+Game 6      Score: 1      Time: 17.14288902282715s
+Game 7      Score: 1      Time: 19.622607707977295s
+Game 8      Score: 1      Time: 22.704315423965454s
+Game 9      Score: 0      Time: 26.894525051116943s
+Game 10      Score: 1      Time: 70.55669331550598s
+Game 11      Score: 0      Time: 404.7627127170563s

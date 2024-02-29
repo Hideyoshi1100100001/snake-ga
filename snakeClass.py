@@ -29,7 +29,7 @@ def define_parameters():
     params = dict()
     # Neural Network
     params['epsilon_decay_linear'] = 1/100
-    params['learning_rate'] = 0.00013629    #/1
+    params['learning_rate'] = 0.0013629    #/10
     params['first_layer_size'] = 128    # neurons in the first layer
     params['second_layer_size'] = 256   # neurons in the second layer
     params['third_layer_size'] = 64    # neurons in the third layer
@@ -115,20 +115,37 @@ class Player(object):
         self.obsImage = pygame.image.load('img/obstacle.png')
         self.adviseImage = pygame.image.load('img/advise.png')
 
-        self.graph = np.zeros((6, int(game.game_width // 20), int(game.game_height // 20)))
+        self.graph = np.zeros((7, int(game.game_width // 20), int(game.game_height // 20)))
+        self.graph[4] = np.ones((int(game.game_width // 20), int(game.game_height // 20)))
+        '''
+            0: head
+            1: body before head
+            2: body
+            3: obstacle
+            4: ground
+            5: food
+            6: advised position
+        '''
         for pos in self.obstacle:
             self.graph[3][int(pos[0] // 20), int(pos[1] // 20)] = 1
+            self.graph[4][int(pos[0] // 20), int(pos[1] // 20)] = 0
         self.graph[0][int(self.x // 20), int(self.y // 20)] = 1
 
 
     def update_position(self, x, y):
         if self.position[-1][0] != x or self.position[-1][1] != y:
+            self.graph[0][int(self.position[-1][0] // 20), int(self.position[-1][1] // 20)] = 0
+            self.graph[4][int(self.position[-1][0] // 20), int(self.position[-1][1] // 20)] = 0
             self.graph[4][int(self.position[0][0] // 20), int(self.position[0][1] // 20)] = 1
             if self.food > 1:
+                if self.food == 2:
+                    self.graph[1][int(self.position[0][0] // 20), int(self.position[0][1] // 20)] = 0
                 for i in range(0, self.food - 1):
                     self.position[i] = (self.position[i + 1][0], self.position[i + 1][1])
                 if self.food > 2:
+                    self.graph[2][int(self.position[0][0] // 20), int(self.position[0][1] // 20)] = 0
                     self.graph[2][int(self.position[-3][0] // 20), int(self.position[-3][1] // 20)] = 1
+                    self.graph[1][int(self.position[-3][0] // 20), int(self.position[-3][1] // 20)] = 0
                 self.graph[1][int(self.position[-2][0] // 20), int(self.position[-2][1] // 20)] = 1
             self.position[-1] = (x, y)
             self.graph[0][int(self.position[-1][0] // 20), int(self.position[-1][1] // 20)] = 1
@@ -171,7 +188,7 @@ class Player(object):
             self.advisedPosition = []
             pos = (x_food, y_food)
             r = randint(0,3)
-            for index in range(self.food + 1):
+            for index in range(self.food):
                 if pos in self.advisedPosition or pos in self.obstacle:
                     if fail == 2:
                         break
@@ -198,6 +215,8 @@ class Player(object):
 
             if self.headTailWay(game_width, game_height, self.advisedPosition):
                 done = True
+        for adp in self.advisedPosition:
+            self.graph[6][int(adp[0] // 20), int(adp[1] // 20)] = 1
 
     def headTailWay(self, game_width, game_height, target):
         visited = np.zeros_like(self.obsPotential)
@@ -250,7 +269,7 @@ class Food(object):
         self.x_food = 240
         self.y_food = 200
         player.graph[5][12, 10] = 1
-        #self.food_coord(game, player)
+        self.food_coord(game, player)
         self.image = pygame.image.load('img/food2.png')
 
     def food_coord(self, game, player):
@@ -260,6 +279,8 @@ class Food(object):
         self.y_food = y_rand - y_rand % 20
         if (self.x_food, self.y_food) not in player.position and (self.x_food, self.y_food) not in player.obstacle:
             player.graph[5][int(self.x_food // 20), int(self.y_food // 20)] = 1
+            for adp in player.advisedPosition:
+                player.graph[6][int(adp[0] // 20), int(adp[1] // 20)] = 0
             player.advisePosition(game.game_width, game.game_height, self.x_food, self.y_food)
             return self.x_food, self.y_food
         else:
@@ -272,6 +293,7 @@ class Food(object):
 
 def eat(player, food, game):
     if player.x == food.x_food and player.y == food.y_food:
+        player.graph[5][int(food.x_food // 20), int(food.y_food // 20)] = 0
         food.food_coord(game, player)
         player.eaten = True
         game.score = game.score + 1
@@ -314,14 +336,14 @@ def get_frame():
     frame = cv.cvtColor(frame, cv.COLOR_BGR2RGB)
     plt.imshow(frame)
 
-def initialize_game(player, game, food, agent, batch_size):
+def initialize_game(player, game, food, agent, batch_size, short_batch):
     state_init1 = agent.get_state(game, player, food)
     action = [1, 0, 0]
     player.do_move(action, player.x, player.y, game, food, agent)
     state_init2 = agent.get_state(game, player, food)
     reward1 = agent.set_reward(player, game.crash)
     agent.remember(state_init1, action, reward1, state_init2, game.crash)
-    agent.replay_new(agent.memory, batch_size)
+    agent.replay_new(agent.memory, batch_size, short_batch)
 
 
 def plot_seaborn(array_counter, array_score, train):
@@ -374,6 +396,14 @@ def run(params):
     record = 0
     total_score = 0
     high_score = [0, 0]
+    slot = 0
+    state_old_cont = [torch.zeros((params['batch_size_short'], 7, 22, 22), dtype=torch.float32).to(DEVICE), 
+                      torch.zeros((params['batch_size_short'], 11), dtype=torch.float32).to(DEVICE)]
+    state_new_cont = [torch.zeros((params['batch_size_short'], 7, 22, 22), dtype=torch.float32).to(DEVICE), 
+                      torch.zeros((params['batch_size_short'], 11), dtype=torch.float32).to(DEVICE)]
+    action_cont = torch.zeros((params['batch_size_short'], 3), dtype=torch.float32).to(DEVICE)
+    reward_cont = torch.zeros(params['batch_size_short'], dtype=torch.float32).to(DEVICE)
+    done_cont = torch.zeros(params['batch_size_short'], dtype=torch.float32).to(DEVICE)
     while counter_games < params['episodes']:
         start = time.time()
         frames = []
@@ -387,7 +417,7 @@ def run(params):
         food1 = game.food
 
         # Perform first move
-        initialize_game(player1, game, food1, agent, params['batch_size'])
+        initialize_game(player1, game, food1, agent, params['batch_size'], params['batch_size_short'])
 
         if params['display'] and (not params['train'] or ((counter_games + 1) % 10 == 0)):
             display(player1, food1, game, record)
@@ -395,15 +425,19 @@ def run(params):
             frames.append(frame)
         
         steps = 0       # steps since the last positive reward
-        while (not game.crash) and (steps < 100):
-            if not params['train']:
-                agent.epsilon = 0
-            else:
-                # agent.epsilon is set to give randomness to actions
-                agent.epsilon = 1 - (counter_games * params['epsilon_decay_linear'])
+        if not params['train']:
+            agent.epsilon = 0
+        else:
+            # agent.epsilon is set to give randomness to actions
+            agent.epsilon = 1 - (counter_games * params['epsilon_decay_linear'])
 
+        while (not game.crash) and (steps < 100):
             # get old state
             state_old = agent.get_state(game, player1, food1)
+            state_old_cont[0][slot] = torch.tensor(state_old[0], dtype=torch.float32).to(DEVICE)
+            state_old_cont[1][slot] = torch.tensor(state_old[1], dtype=torch.float32).to(DEVICE)
+            #if (counter_games + 1) % 10 == 0:
+                #print("graph:\n", state_old[0])
             if params['reward'] == 1:
                 adv_old = len(set(player1.position).intersection(set(player1.advisedPosition)))
             if params['reward'] == 2:
@@ -430,10 +464,14 @@ def run(params):
                         if state_old[1][2]:
                             prediction[0, 2] = 0
                     final_move = np.eye(3)[np.argmax(prediction.detach().cpu().numpy()[0])]
-
+            action_cont[slot] = torch.tensor(final_move, dtype=torch.float32).to(DEVICE)
+                
             # perform new move and get new state
             player1.do_move(final_move, player1.x, player1.y, game, food1, agent)
+                
             state_new = agent.get_state(game, player1, food1)
+            state_new_cont[0][slot] = torch.tensor(state_new[0], dtype=torch.float32).to(DEVICE)
+            state_new_cont[1][slot] = torch.tensor(state_new[1], dtype=torch.float32).to(DEVICE)
             if params['reward'] == 1:
                 adv_new = len(set(player1.position).intersection(set(player1.advisedPosition)))
                 adv_diff = (adv_new - adv_old)
@@ -447,7 +485,6 @@ def run(params):
                               #(body_pot_old - body_pot_new) / 2 + 
                               (1 if adv_new > adv_old else 0) / 2
                               ) * 5
-                              
 
             # set reward for the new state
             if params['reward'] == 0:
@@ -456,19 +493,30 @@ def run(params):
                 reward = agent.set_advise_reward(player1, adv_diff, game.crash)
             elif params['reward'] == 2:
                 reward = agent.set_potential_reward(player1, potential_diff, game.crash)
+            reward_cont[slot] = reward
+
+            if params['debugDisplayTime'] and (steps + 1) % 10 == 0:
+                lastTime = time.time()
             
             # if food is eaten, steps is set to 0
             if reward >= 10:
                 steps = 0
+
+            done_cont[slot] = 0 if game.crash else 1
                 
-            if params['train']:
+            if params['train'] and (slot + 1) % params['batch_size_short'] == 0:
                 # train short memory base on the new action and state
-                loss = agent.train_short_memory(state_old, final_move, reward, state_new, game.crash)
+                loss = agent.train_short_memory(state_old_cont, action_cont, reward_cont, state_new_cont, done_cont)
                 #if (steps + 1) % 10 == 0:
                     #print("loss:", loss)
                 #train short memory, interval
                 # store the new data into a long term memory
                 agent.remember(state_old, final_move, reward, state_new, game.crash)
+
+            slot = (slot + 1) % params['batch_size_short']
+            if params['debugDisplayTime'] and (steps + 1) % 10 == 0:
+                print(f"\ttrain: {time.time() - lastTime}s", end="")
+                lastTime = time.time()
 
             record = get_record(game.score, record)
             if params['display'] and (not params['train'] or ((counter_games + 1) % 10 == 0)):
@@ -476,9 +524,14 @@ def run(params):
                 frame = get_frame()
                 frames.append(frame)
                 pygame.time.wait(params['speed'])
+
+            if params['debugDisplayTime'] and (steps + 1) % 10 == 0:
+                print(f"\tdisplay: {time.time() - lastTime}s")
+                lastTime = time.time()
+                
             steps+=1
         if params['train']:
-            agent.replay_new(agent.memory, params['batch_size'])
+            agent.replay_new(agent.memory, params['batch_size'], params['batch_size_short'])
         counter_games += 1
         total_score += game.score
         if params['display'] and (not params['train'] or ((counter_games) % 10 == 0)):
@@ -507,12 +560,14 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     params = define_parameters()
     parser.add_argument("--display", action='store_true')
+    parser.add_argument("--displayTime", action='store_true')
     parser.add_argument("--speed", nargs='?', type=int, default=50)
     parser.add_argument("--bayesianopt", nargs='?', type=distutils.util.strtobool, default=False)
     parser.add_argument("--train", action='store_true')
     parser.add_argument("--obs", type=int, default=0)
     parser.add_argument("--epochs", type=int, default=250)
     parser.add_argument("--reward", type=int, default=0)
+    parser.add_argument("--batch-size", type=int, default=100)
     args = parser.parse_args()
     params['train'] = args.train
     params['display'] = args.display
@@ -520,6 +575,8 @@ if __name__ == '__main__':
     params['obs'] = args.obs
     params['episodes'] = args.epochs
     params['reward'] = args.reward
+    params['debugDisplayTime'] = args.displayTime
+    params['batch_size_short'] = args.batch_size
     print("Args", args)
     if args.bayesianopt:
         bayesOpt = BayesianOptimizer(params)
